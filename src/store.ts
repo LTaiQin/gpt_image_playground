@@ -61,6 +61,9 @@ function createOpenAITimeoutError(timeoutSeconds: number) {
 
 function formatTaskExecutionError(task: TaskRecord, profile: ApiProfile, error: unknown): string {
   const rawMessage = error instanceof Error ? error.message : String(error)
+  if (rawMessage.startsWith('请求失败：浏览器无法连接到接口。')) {
+    return rawMessage
+  }
   if (!/failed to fetch|fetch failed|load failed|networkerror|network error/i.test(rawMessage)) {
     return rawMessage
   }
