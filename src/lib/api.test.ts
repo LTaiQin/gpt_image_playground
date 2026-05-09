@@ -201,6 +201,25 @@ describe('callImageApi', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('https://cdn.example.com/generated.png')
   })
 
+  it('surfaces detailed diagnostics when the main API request fails at browser fetch level', async () => {
+    vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    await expect(callImageApi({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        apiProxy: true,
+        baseUrl: 'https://www.micuapi.ai/v1',
+      },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })).rejects.toThrow(
+      /请求失败：浏览器无法连接到接口。\n请求：POST \/api-proxy\/images\/generations\n当前使用同源 API 代理。\n可能原因：/s,
+    )
+  })
+
   it('polls custom async tasks immediately and keeps polling after transient network errors', async () => {
     vi.useFakeTimers()
     const onCustomTaskEnqueued = vi.fn()

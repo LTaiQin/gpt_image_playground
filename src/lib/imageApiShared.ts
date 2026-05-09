@@ -138,6 +138,45 @@ export async function getApiErrorMessage(response: Response): Promise<string> {
   return errorMsg
 }
 
+export function formatApiFetchError(
+  error: unknown,
+  context: {
+    url: string
+    method: string
+    useApiProxy?: boolean
+    apiProxyTarget?: string
+  },
+): Error {
+  if (error instanceof Error && error.name === 'AbortError') {
+    return error
+  }
+
+  const rawMessage = error instanceof Error ? error.message : String(error)
+  const isLikelyBrowserFetchFailure = /failed to fetch|fetch failed|load failed|networkerror|network error/i.test(rawMessage)
+
+  if (!isLikelyBrowserFetchFailure) {
+    return error instanceof Error ? error : new Error(rawMessage)
+  }
+
+  const lines = [
+    `请求失败：浏览器无法连接到接口。`,
+    `请求：${context.method.toUpperCase()} ${context.url}`,
+  ]
+
+  if (context.useApiProxy) {
+    lines.push(`当前使用同源 API 代理。`)
+    if (context.apiProxyTarget) lines.push(`代理目标：${context.apiProxyTarget}`)
+    lines.push(`可能原因：Zeabur / Nginx 代理未正确转发，上游接口不可达，或代理服务返回了浏览器层网络错误。`)
+  } else {
+    lines.push(`当前未使用 API 代理。`)
+    lines.push(`可能原因：目标接口跨域（CORS）被浏览器拦截，目标域名不可达，或 HTTPS / 证书配置异常。`)
+  }
+
+  lines.push(`浏览器原始错误：${rawMessage}`)
+  lines.push(`请优先检查浏览器开发者工具 Network/Console 面板中的失败请求详情。`)
+  return new Error(lines.join('\n'))
+}
+
 export function pickActualParams(source: unknown): Partial<TaskParams> {
   if (!source || typeof source !== 'object') return {}
   const record = source as Record<string, unknown>

@@ -7,6 +7,7 @@ import {
   type CallApiOptions,
   type CallApiResult,
   fetchImageUrlAsDataUrl,
+  formatApiFetchError,
   getApiErrorMessage,
   getDataUrlDecodedByteSize,
   getDataUrlEncodedByteSize,
@@ -80,6 +81,10 @@ function createRequestHeaders(profile: ApiProfile): Record<string, string> {
   return {
     Authorization: `Bearer ${profile.apiKey}`,
   }
+}
+
+function getApiProxyTarget(proxyConfig?: ReturnType<typeof readClientDevProxyConfig>): string | undefined {
+  return proxyConfig?.target
 }
 
 function createResponsesImageTool(
@@ -268,6 +273,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
     let response: Response
 
     if (isEdit) {
+      const requestUrl = buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy)
       const formData = new FormData()
       formData.append('model', profile.model)
       formData.append('prompt', prompt)
@@ -314,14 +320,24 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         formData.append('mask', maskBlob, 'mask.png')
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy), {
-        method: 'POST',
-        headers: requestHeaders,
-        cache: 'no-store',
-        body: formData,
-        signal: controller.signal,
-      })
+      try {
+        response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: requestHeaders,
+          cache: 'no-store',
+          body: formData,
+          signal: controller.signal,
+        })
+      } catch (error) {
+        throw formatApiFetchError(error, {
+          url: requestUrl,
+          method: 'POST',
+          useApiProxy,
+          apiProxyTarget: getApiProxyTarget(proxyConfig),
+        })
+      }
     } else {
+      const requestUrl = buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy)
       const body: Record<string, unknown> = {
         model: profile.model,
         prompt,
@@ -341,16 +357,25 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         body.n = params.n
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy), {
-        method: 'POST',
-        headers: {
-          ...requestHeaders,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
+      try {
+        response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: {
+            ...requestHeaders,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+      } catch (error) {
+        throw formatApiFetchError(error, {
+          url: requestUrl,
+          method: 'POST',
+          useApiProxy,
+          apiProxyTarget: getApiProxyTarget(proxyConfig),
+        })
+      }
     }
 
     if (!response.ok) {
@@ -533,6 +558,13 @@ async function submitCustomRequest(mapping: CustomProviderSubmitMapping, opts: C
     cache: 'no-store',
     body,
     signal: controller.signal,
+  }).catch((error) => {
+    throw formatApiFetchError(error, {
+      url: buildApiUrl(profile.baseUrl, path, proxyConfig, false),
+      method,
+      useApiProxy: false,
+      apiProxyTarget: getApiProxyTarget(proxyConfig),
+    })
   })
 
   if (!response.ok) throw new Error(await getApiErrorMessage(response))
@@ -562,11 +594,19 @@ async function pollCustomTaskResult(
     const taskPath = appendQuery(buildTaskPath(poll.path, taskId), poll.query)
     let taskPayload: unknown
     try {
-      const taskResponse = await fetch(buildApiUrl(profile.baseUrl, taskPath, proxyConfig, false), {
+      const taskUrl = buildApiUrl(profile.baseUrl, taskPath, proxyConfig, false)
+      const taskResponse = await fetch(taskUrl, {
         method: poll.method ?? 'GET',
         headers: requestHeaders,
         cache: 'no-store',
         signal,
+      }).catch((error) => {
+        throw formatApiFetchError(error, {
+          url: taskUrl,
+          method: poll.method ?? 'GET',
+          useApiProxy: false,
+          apiProxyTarget: getApiProxyTarget(proxyConfig),
+        })
       })
 
       if (!taskResponse.ok) {
@@ -692,7 +732,8 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       tool_choice: 'required',
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const requestUrl = buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy)
+    const response = await fetch(requestUrl, {
       method: 'POST',
       headers: {
         ...requestHeaders,
@@ -701,6 +742,13 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       cache: 'no-store',
       body: JSON.stringify(body),
       signal: controller.signal,
+    }).catch((error) => {
+      throw formatApiFetchError(error, {
+        url: requestUrl,
+        method: 'POST',
+        useApiProxy,
+        apiProxyTarget: getApiProxyTarget(proxyConfig),
+      })
     })
 
     if (!response.ok) {
