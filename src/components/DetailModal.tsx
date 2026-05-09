@@ -170,6 +170,9 @@ export default function DetailModal() {
   const taskProviderName = taskProvider === 'fal' ? 'fal.ai' : taskProvider ? 'OpenAI' : '未知'
   const taskProfileName = task.apiProfileName || '未知'
   const taskModel = task.apiModel || '未知'
+  const taskProfile = task.apiProfileId
+    ? settings.profiles.find((profile) => profile.id === task.apiProfileId) ?? null
+    : null
   const showSourceInfo = Boolean(task.apiProvider || task.apiProfileName || task.apiModel)
   const isFalReconnecting = task.status === 'error' && task.falRecoverable
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
@@ -224,7 +227,21 @@ export default function DetailModal() {
   }
 
   const handleCopyError = async () => {
-    const errorText = task.error || '生成失败'
+    const errorText = [
+      'GPT Image Playground 错误诊断',
+      `任务 ID: ${task.id}`,
+      `状态: ${task.status}`,
+      `时间: ${formatTime(task.createdAt) || '未知'}`,
+      `服务商: ${taskProviderName}`,
+      `配置名称: ${taskProfileName}`,
+      `模型: ${taskModel}`,
+      `接口模式: ${taskProfile?.apiMode || '未知'}`,
+      `API URL: ${taskProfile?.baseUrl || '未知'}`,
+      `API 代理: ${taskProfile ? (taskProfile.apiProxy ? '开启' : '关闭') : '未知'}`,
+      '',
+      '错误信息:',
+      task.error || '生成失败',
+    ].join('\n')
     try {
       await copyTextToClipboard(errorText)
       showToast('完整报错已复制', 'success')

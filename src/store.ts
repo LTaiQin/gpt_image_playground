@@ -59,6 +59,39 @@ function createOpenAITimeoutError(timeoutSeconds: number) {
   return `请求超时：超过 ${timeoutSeconds} 秒仍未完成，请稍后重试或提高超时时间。`
 }
 
+function formatTaskExecutionError(task: TaskRecord, profile: ApiProfile, error: unknown): string {
+  const rawMessage = error instanceof Error ? error.message : String(error)
+  if (!/failed to fetch|fetch failed|load failed|networkerror|network error/i.test(rawMessage)) {
+    return rawMessage
+  }
+
+  const lines = [
+    '请求失败：浏览器无法连接到接口。',
+    `配置名称：${profile.name}`,
+    `模型：${profile.model}`,
+    `接口模式：${profile.apiMode}`,
+    `API URL：${profile.baseUrl}`,
+    `API 代理：${profile.apiProxy ? '开启' : '关闭'}`,
+  ]
+
+  if (profile.apiProxy) {
+    lines.push('可能原因：Zeabur / Nginx 同源代理未正确转发，上游接口不可达，或代理返回了浏览器层网络错误。')
+  } else {
+    lines.push('可能原因：浏览器跨域（CORS）拦截、目标域名不可达，或 HTTPS / 证书异常。')
+  }
+
+  if (task.inputImageIds.length > 0) {
+    lines.push(`本次任务包含参考图：${task.inputImageIds.length} 张`)
+  }
+  if (task.maskImageId) {
+    lines.push('本次任务包含遮罩图。')
+  }
+
+  lines.push(`浏览器原始错误：${rawMessage}`)
+  lines.push('请打开浏览器开发者工具，检查 Network/Console 中失败请求的状态码和响应内容。')
+  return lines.join('\n')
+}
+
 export function getCachedImage(id: string): string | undefined {
   const dataUrl = imageCache.get(id)
   if (dataUrl) {
@@ -1231,7 +1264,7 @@ async function executeTask(taskId: string) {
     } else {
       updateTaskInStore(taskId, {
         status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: formatTaskExecutionError(task, activeProfile, err),
         falRecoverable: false,
         customRecoverable: false,
         finishedAt: Date.now(),
