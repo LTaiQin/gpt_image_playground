@@ -87,6 +87,31 @@ function getApiProxyTarget(proxyConfig?: ReturnType<typeof readClientDevProxyCon
   return proxyConfig?.target
 }
 
+async function throwIfBadApiResponse(
+  response: Response,
+  context?: {
+    url: string
+    method: string
+    useApiProxy?: boolean
+    apiProxyTarget?: string
+  },
+): Promise<void> {
+  if (response.ok) return
+
+  const message = await getApiErrorMessage(response)
+  if (response.status === 502 && context?.useApiProxy) {
+    throw new Error([
+      '同源 API 代理请求上游失败（HTTP 502）。',
+      `请求：${context.method.toUpperCase()} ${context.url}`,
+      `代理目标：${context.apiProxyTarget || '未知'}`,
+      '这通常表示 Zeabur / Nginx 无法连接上游，或 HTTPS 上游的 TLS/SNI 握手失败。',
+      `原始响应：${message}`,
+    ].join('\n'))
+  }
+
+  throw new Error(message)
+}
+
 function createResponsesImageTool(
   params: TaskParams,
   isEdit: boolean,
@@ -378,9 +403,14 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       }
     }
 
-    if (!response.ok) {
-      throw new Error(await getApiErrorMessage(response))
-    }
+    await throwIfBadApiResponse(response, {
+      url: isEdit
+        ? buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy)
+        : buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy),
+      method: 'POST',
+      useApiProxy,
+      apiProxyTarget: getApiProxyTarget(proxyConfig),
+    })
 
     return parseImagesApiResponse(await response.json() as ImageApiResponse, mime, controller.signal)
   } finally {
@@ -567,7 +597,12 @@ async function submitCustomRequest(mapping: CustomProviderSubmitMapping, opts: C
     })
   })
 
-  if (!response.ok) throw new Error(await getApiErrorMessage(response))
+  await throwIfBadApiResponse(response, {
+    url: buildApiUrl(profile.baseUrl, path, proxyConfig, false),
+    method,
+    useApiProxy: false,
+    apiProxyTarget: getApiProxyTarget(proxyConfig),
+  })
   return response.json()
 }
 
@@ -611,7 +646,12 @@ async function pollCustomTaskResult(
 
       if (!taskResponse.ok) {
         if (isRetryablePollingStatus(taskResponse.status)) continue
-        throw new Error(await getApiErrorMessage(taskResponse))
+        await throwIfBadApiResponse(taskResponse, {
+          url: taskUrl,
+          method: poll.method ?? 'GET',
+          useApiProxy: false,
+          apiProxyTarget: getApiProxyTarget(proxyConfig),
+        })
       }
 
       taskPayload = await taskResponse.json()
@@ -751,9 +791,12 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       })
     })
 
-    if (!response.ok) {
-      throw new Error(await getApiErrorMessage(response))
-    }
+    await throwIfBadApiResponse(response, {
+      url: requestUrl,
+      method: 'POST',
+      useApiProxy,
+      apiProxyTarget: getApiProxyTarget(proxyConfig),
+    })
 
     const payload = await response.json() as ResponsesApiResponse
     const imageResults = parseResponsesImageResults(payload, mime)
