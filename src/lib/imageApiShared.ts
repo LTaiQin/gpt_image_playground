@@ -21,7 +21,7 @@ export interface CallApiOptions {
 }
 
 export interface CallApiResult {
-  /** base64 data URL 列表 */
+  /** 可直接用于展示的图片 src 列表：优先 data URL，必要时回退为 http(s) URL */
   images: string[]
   /** API 返回的实际生效参数 */
   actualParams?: Partial<TaskParams>
@@ -93,17 +93,30 @@ async function blobToDataUrl(blob: Blob, fallbackMime: string): Promise<string> 
 export async function fetchImageUrlAsDataUrl(url: string, fallbackMime: string, signal?: AbortSignal): Promise<string> {
   if (isDataUrl(url)) return url
 
-  const response = await fetch(url, {
-    cache: 'no-store',
-    signal,
-  })
+  let response: Response
+  try {
+    response = await fetch(url, {
+      cache: 'no-store',
+      signal,
+    })
+  } catch (error) {
+    // Some gateways return image CDN URLs without permissive CORS headers.
+    // In that case, keep the original URL so the image can still be displayed.
+    if (isHttpUrl(url)) return url
+    throw error
+  }
 
   if (!response.ok) {
     throw new Error(`图片 URL 下载失败：HTTP ${response.status}`)
   }
 
-  const blob = await response.blob()
-  return blobToDataUrl(blob, fallbackMime)
+  try {
+    const blob = await response.blob()
+    return blobToDataUrl(blob, fallbackMime)
+  } catch (error) {
+    if (isHttpUrl(url)) return url
+    throw error
+  }
 }
 
 export async function getApiErrorMessage(response: Response): Promise<string> {

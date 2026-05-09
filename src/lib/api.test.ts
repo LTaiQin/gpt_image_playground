@@ -175,6 +175,32 @@ describe('callImageApi', () => {
     )
   })
 
+  it('keeps image URLs when the browser cannot fetch the returned image because of CORS', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [{ url: 'https://cdn.example.com/generated.png' }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    await expect(callImageApi({
+      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key' },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })).resolves.toEqual({
+      actualParams: undefined,
+      images: ['https://cdn.example.com/generated.png'],
+      actualParamsList: ['https://cdn.example.com/generated.png'].map(() => undefined),
+      revisedPrompts: [undefined],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1][0]).toBe('https://cdn.example.com/generated.png')
+  })
+
   it('polls custom async tasks immediately and keeps polling after transient network errors', async () => {
     vi.useFakeTimers()
     const onCustomTaskEnqueued = vi.fn()
